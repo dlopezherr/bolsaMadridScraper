@@ -1,10 +1,14 @@
 import re
 
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.common.by import By
-from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.common.keys import Keys
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from datetime import datetime
+from dateutil.relativedelta import relativedelta
 import csv
+
 
 from driver import chrome_driver
 
@@ -18,13 +22,19 @@ MAIN_TABLE_URL = 'https://www.bolsamadrid.es/esp/aspx/Empresas/Empresas.aspx'
 MAIN_TABLE_ID = 'ctl00_Contenido_tblEmisoras'
 MAIN_TABLE_NEXT_BTN_ID = 'ctl00_Contenido_SiguientesArr'
 
-
 GENERAL_INFO_RESOURCE_NAME = 'FichaValor'
 MARKET_PRICE_RESOURCE_NAME = 'InfHistorica'
 MARKET_PRICE_TABLE_ID = 'ctl00_Contenido_tblDatos'
 MARKET_PRICE_NEXT_BTN_ID = 'ctl00_Contenido_SiguientesArr'
 ISIN_COL = 0
 ISIN_REGEX = r'ISIN=(.+)'
+
+FORM_START_DAY_ID = 'ctl00_Contenido_Desde_Dia'
+FORM_START_MONTH_ID = 'ctl00_Contenido_Desde_Mes'
+FORM_START_YEAR_ID = 'ctl00_Contenido_Desde_Año'
+TIME_DELTA_MONTHS = 12
+FORM_SEND_BTN_ID = 'ctl00_Contenido_Buscar'
+
 
 NEXT_BUTTON_DELAY = 2
 TABLE_DELAY = 10
@@ -71,16 +81,51 @@ def parse_main_page(driver, results_list, table_id, next_btn_id, link_at_cols=()
     try:
         while True:
             table = WebDriverWait(driver, TABLE_DELAY).until(
-                EC.presence_of_element_located((By.ID, table_id))
+                ec.presence_of_element_located((By.ID, table_id))
             )
             results_list = parse_table_page(table, results_list, link_at_cols, append_fields)
             next_page_btn = WebDriverWait(driver, NEXT_BUTTON_DELAY).until(
-                EC.presence_of_element_located((By.ID, next_btn_id))
+                ec.presence_of_element_located((By.ID, next_btn_id))
             )
             next_page_btn.click()
     except Exception as e:
         print(type(e))
     return results_list
+
+
+def fill_formulary(driver, elem_dict, send_btn_id, timeout=10):
+    """Fill a web formulary from a dictionary.
+
+    This function fills a web formulary from the contents of a dictionary which stores the
+    values to be input with the ids of the fields as dictionary keys.
+    :param driver: Selenium webdriver object.
+    :param elem_dict: (dictionary) Relations the values to be filled into the web formulary
+    with the ids of its respective fields (as dictionary keys).
+    :param send_btn_id: (selenium object) Button to send the formularie.
+    :param timeout: (int) Time in seconds to timeout the response.
+    """
+    for elem_id, val in elem_dict.items():
+        try:
+            elem = WebDriverWait(driver, timeout).until(
+                ec.presence_of_element_located((By.ID, elem_id))
+            )
+            elem.send_keys(Keys.CONTROL, "a")
+            elem.send_keys(str(val))
+            print(elem_id, val)
+        except TimeoutException as e:
+            err_msg = (f'Program timed out waiting for element with id = {elem_id}:\n'
+                       f'  Error message: {e.msg}\n')
+            raise Exception(err_msg)
+    try:
+        send_btn = WebDriverWait(driver, timeout).until(
+            ec.presence_of_element_located((By.ID, send_btn_id))
+        )
+        send_btn.click()
+    except TimeoutException as e:
+        err_msg = (f'Program timed out waiting for formulary button, with id = {send_btn_id}:\n'
+                   f'  Error message: {e.msg}\n')
+        raise Exception(err_msg)
+
 
 def write_list_to_file(lst, file_path, mode='w'):
     """Write a table contained in a list of list to a file.
@@ -111,6 +156,12 @@ if __name__ == '__main__':
 
     print(len(corporations_list))
 
+    form_fields = {}
+    query_start_date = datetime.today() - relativedelta(months=12)
+    form_fields[FORM_START_DAY_ID] = query_start_date.day
+    form_fields[FORM_START_MONTH_ID] = query_start_date.month
+    form_fields[FORM_START_YEAR_ID] = query_start_date.year
+
     # Get market_prices table as a list of lists.
     for corporation in corporations_list:
         # Adapt URL.
@@ -118,6 +169,7 @@ if __name__ == '__main__':
         # Parse ISIN.
         corporation[ISIN_COL] = re.findall(ISIN_REGEX, corporation[ISIN_COL])[0]
         driver.get(url)
+        fill_formulary(driver, form_fields, FORM_SEND_BTN_ID)
         market_prices_list = parse_main_page(
             driver,
             results_list=market_prices_list,
@@ -126,7 +178,6 @@ if __name__ == '__main__':
             link_at_cols=tuple(),
             append_fields=(corporation[ISIN_COL],)
         )
-
 
     # Output the tables to csv files.
     write_list_to_file(corporations_list, CORPORATIONS_FILE_PATH, 'w')
