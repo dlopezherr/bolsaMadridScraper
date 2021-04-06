@@ -4,14 +4,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import NoSuchElementException
+import csv
 
 from driver import chrome_driver
 
 
 # Constants
 DRIVER_PATH = '../res/chromedriver'
-CORPORATIONS_FILE_PATH = './Data/corporation.csv'
-MARKET_PRICES_FILE_PATH = './Data/market_price.csv'
+CORPORATIONS_FILE_PATH = '../data_scraped/corporation.csv'
+MARKET_PRICES_FILE_PATH = '../data_scraped/market_price.csv'
 
 MAIN_TABLE_URL = 'https://www.bolsamadrid.es/esp/aspx/Empresas/Empresas.aspx'
 MAIN_TABLE_ID = 'ctl00_Contenido_tblEmisoras'
@@ -37,9 +38,9 @@ def parse_table_page(table, results_list, link_at_cols=(), append_fields=()):
     in links_at_cols argument. Headers row (first row) is skipped.
     :param table: (selenium object): Selenium object containing an html table.
     :param results_list: (list): List where the results are appended.
-    :param link_at_cols: (iterator): Optional iterator contain the column numbers
+    :param link_at_cols: (iterable): Optional iterable contain the column numbers
     where there are hyperlinks to be parsed.
-    :param append_fields: (iterator): Optional iterator containing any items which
+    :param append_fields: (iterable): Optional iterable containing any items which
     need be prepended to each row.
     :return: The list results_list received as an argument.
     """
@@ -66,6 +67,7 @@ def parse_table_page(table, results_list, link_at_cols=(), append_fields=()):
 
 
 def parse_main_page(driver, results_list, table_id, next_btn_id, link_at_cols=(), append_fields=()):
+    
     try:
         while True:
             table = WebDriverWait(driver, TABLE_DELAY).until(
@@ -80,13 +82,16 @@ def parse_main_page(driver, results_list, table_id, next_btn_id, link_at_cols=()
         print(type(e))
     return results_list
 
+def write_list_to_file(lst, file_path, mode='w'):
+    """Write a table contained in a list of list to a file.
 
-def write_list_to_file(lst, file_path):
-    with open(file_path, 'w') as f:
-        for row in lst:
-            for itm in row:
-                f.write(f'"{itm}",')
-            f.write('\n')
+    :param lst: (list) List containing the rows of the table.
+    :param file_path: (str) String containing the file path.
+    :param mode: (str) File open mode.
+    """
+    with open(file_path, mode) as f:
+        writer = csv.writer(f)
+        writer.writerows(lst)
 
 
 if __name__ == '__main__':
@@ -122,9 +127,10 @@ if __name__ == '__main__':
             append_fields=(corporation[ISIN_COL],)
         )
 
+
     # Output the tables to csv files.
-    write_list_to_file(corporations_list, CORPORATIONS_FILE_PATH)
-    write_list_to_file(market_prices_list, MARKET_PRICES_FILE_PATH)
+    write_list_to_file(corporations_list, CORPORATIONS_FILE_PATH, 'w')
+    write_list_to_file(market_prices_list, MARKET_PRICES_FILE_PATH, 'w')
 
     # Quit the driver.
     driver.quit()
