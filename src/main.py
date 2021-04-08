@@ -1,130 +1,43 @@
+import sys
 import re
-
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as ec
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
+from queue import Queue
 import csv
 
-
-from driver import chrome_driver
-
+from webparser import WebParserThread, Task
 
 # Constants
+# Chrome driver and result files path.
 DRIVER_PATH = '../res/chromedriver'
 CORPORATIONS_FILE_PATH = '../data_scraped/corporation.csv'
 MARKET_PRICES_FILE_PATH = '../data_scraped/market_price.csv'
 
+# Main table ids.
 MAIN_TABLE_URL = 'https://www.bolsamadrid.es/esp/aspx/Empresas/Empresas.aspx'
 MAIN_TABLE_ID = 'ctl00_Contenido_tblEmisoras'
 MAIN_TABLE_NEXT_BTN_ID = 'ctl00_Contenido_SiguientesArr'
 
-GENERAL_INFO_RESOURCE_NAME = 'FichaValor'
-MARKET_PRICE_RESOURCE_NAME = 'InfHistorica'
-MARKET_PRICE_TABLE_ID = 'ctl00_Contenido_tblDatos'
-MARKET_PRICE_NEXT_BTN_ID = 'ctl00_Contenido_SiguientesArr'
+# ISIN extraction info.
 ISIN_COL = 0
 ISIN_REGEX = r'ISIN=(.+)'
 
+# Ids of the historic data time window formulary required fields.
 FORM_START_DAY_ID = 'ctl00_Contenido_Desde_Dia'
 FORM_START_MONTH_ID = 'ctl00_Contenido_Desde_Mes'
 FORM_START_YEAR_ID = 'ctl00_Contenido_Desde_Año'
-TIME_DELTA_MONTHS = 12
 FORM_SEND_BTN_ID = 'ctl00_Contenido_Buscar'
+TIME_DELTA_MONTHS = 12      # Number of months extracted.
 
+# Market price table ids.
+MARKET_PRICE_BASE_URL = 'https://www.bolsamadrid.es/esp/aspx/Empresas/InfHistorica.aspx?ISIN='
+MARKET_PRICE_TABLE_ID = 'ctl00_Contenido_tblDatos'
+MARKET_PRICE_NEXT_BTN_ID = 'ctl00_Contenido_SiguientesArr'
 
-NEXT_BUTTON_DELAY = 2
-TABLE_DELAY = 10
-
-
-def parse_table_page(table, results_list, link_at_cols=(), append_fields=()):
-    """Parse a selenium item containing an html table.
-
-    This function parses an html table to a list of lists. It extracts the
-    textual contents of the table as well as the links on the columns indicated
-    in links_at_cols argument. Headers row (first row) is skipped.
-    :param table: (selenium object): Selenium object containing an html table.
-    :param results_list: (list): List where the results are appended.
-    :param link_at_cols: (iterable): Optional iterable contain the column numbers
-    where there are hyperlinks to be parsed.
-    :param append_fields: (iterable): Optional iterable containing any items which
-    need be prepended to each row.
-    :return: The list results_list received as an argument.
-    """
-    for row_num, row in enumerate(table.find_elements_by_tag_name('tr')):
-        # Remove headers.
-        if row_num != 0:
-            row_lst = list(append_fields)
-            for col_num, cell in enumerate(row.find_elements_by_tag_name('td')):
-                # Get links.
-                try:
-                    if col_num in link_at_cols:
-                        link = cell.find_element_by_tag_name('a')
-                        row_lst.append(link.get_attribute('href'))
-                except NoSuchElementException as e:
-                    err_msg = (f'An error has occurred parsing the link from row {row_num}'
-                               f' and column {col_num} at table {table.get_attribute("id")}:\n'
-                               f'  Error message: {e.msg}\n'
-                               f'  Source code: {cell.get_attribute("innerHTML")}\n')
-                    raise Exception(err_msg)
-                # Get text.
-                row_lst.append(cell.text)
-            results_list.append(row_lst)
-    return results_list
-
-
-def parse_main_page(driver, results_list, table_id, next_btn_id, link_at_cols=(), append_fields=()):
-    
-    try:
-        while True:
-            table = WebDriverWait(driver, TABLE_DELAY).until(
-                ec.presence_of_element_located((By.ID, table_id))
-            )
-            results_list = parse_table_page(table, results_list, link_at_cols, append_fields)
-            next_page_btn = WebDriverWait(driver, NEXT_BUTTON_DELAY).until(
-                ec.presence_of_element_located((By.ID, next_btn_id))
-            )
-            next_page_btn.click()
-    except Exception as e:
-        print(type(e))
-    return results_list
-
-
-def fill_formulary(driver, elem_dict, send_btn_id, timeout=10):
-    """Fill a web formulary from a dictionary.
-
-    This function fills a web formulary from the contents of a dictionary which stores the
-    values to be input with the ids of the fields as dictionary keys.
-    :param driver: Selenium webdriver object.
-    :param elem_dict: (dictionary) Relations the values to be filled into the web formulary
-    with the ids of its respective fields (as dictionary keys).
-    :param send_btn_id: (selenium object) Button to send the formularie.
-    :param timeout: (int) Time in seconds to timeout the response.
-    """
-    for elem_id, val in elem_dict.items():
-        try:
-            elem = WebDriverWait(driver, timeout).until(
-                ec.presence_of_element_located((By.ID, elem_id))
-            )
-            elem.send_keys(Keys.CONTROL, "a")
-            elem.send_keys(str(val))
-            print(elem_id, val)
-        except TimeoutException as e:
-            err_msg = (f'Program timed out waiting for element with id = {elem_id}:\n'
-                       f'  Error message: {e.msg}\n')
-            raise Exception(err_msg)
-    try:
-        send_btn = WebDriverWait(driver, timeout).until(
-            ec.presence_of_element_located((By.ID, send_btn_id))
-        )
-        send_btn.click()
-    except TimeoutException as e:
-        err_msg = (f'Program timed out waiting for formulary button, with id = {send_btn_id}:\n'
-                   f'  Error message: {e.msg}\n')
-        raise Exception(err_msg)
+# Number of workers in the pool, base timeout and number of trials.
+NUM_OF_THREADS = 8
+BASE_TIMEOUT = 30   # Delay to let the server recover is (30*2^k)
+NUM_OF_TRIALS = 3   # with k increasing from 0 to NUM_OF_TRIALS - 1.
 
 
 def write_list_to_file(lst, file_path, mode='w'):
@@ -139,49 +52,88 @@ def write_list_to_file(lst, file_path, mode='w'):
         writer.writerows(lst)
 
 
+def is_succesfull(itm, failed_list):
+    """Append error message to the error list when an exception is received.
+
+    :param itm: item checked.
+    :param failed_list: List of errors.
+    :return: When an exception is received, return None. Elsewise, return itm.
+    """
+    if isinstance(itm, Exception):
+        failed_list.append(str(itm))
+        return None
+    else:
+        return itm
+
+
 if __name__ == '__main__':
-    corporations_list = []
-    market_prices_list = []
 
-    # Get corporations table as a list of lists.
-    driver = chrome_driver(DRIVER_PATH)
-    driver.get(MAIN_TABLE_URL)   # HTTP request.
-    corporations_list = parse_main_page(
-        driver,
-        results_list=corporations_list,
-        table_id=MAIN_TABLE_ID,
-        next_btn_id=MAIN_TABLE_NEXT_BTN_ID,
-        link_at_cols=(ISIN_COL, )
-    )
+    errors = []
 
-    print(len(corporations_list))
+    # Create queues.
+    in_q = Queue()
+    out_q = Queue()
 
-    form_fields = {}
+    # Get the main table.
+    t = WebParserThread(DRIVER_PATH, in_q, out_q, base_timeout=BASE_TIMEOUT,
+                        retry_times=NUM_OF_TRIALS)
+    t.set_table(MAIN_TABLE_ID, MAIN_TABLE_NEXT_BTN_ID, (ISIN_COL,))
+    t.start()
+    in_q.put(Task(MAIN_TABLE_URL))
+    in_q.put(None)
+    in_q.join()
+    main_table = is_succesfull(out_q.get(), errors)
+    if main_table is None:
+        print('The process failed to extract Main Table. '
+              'Please check the errors or try again later.\n  Errors:')
+        for error in errors:
+            print(error)
+        sys.exit()
+    print(f'Main Table has of {len(main_table)} registers.')
+
+    # Configure a parser for market price trable data extraction.
     query_start_date = datetime.today() - relativedelta(months=12)
+    form_fields = {}
     form_fields[FORM_START_DAY_ID] = query_start_date.day
     form_fields[FORM_START_MONTH_ID] = query_start_date.month
     form_fields[FORM_START_YEAR_ID] = query_start_date.year
 
-    # Get market_prices table as a list of lists.
-    for corporation in corporations_list:
-        # Adapt URL.
-        url = corporation[ISIN_COL].replace(GENERAL_INFO_RESOURCE_NAME, MARKET_PRICE_RESOURCE_NAME)
-        # Parse ISIN.
-        corporation[ISIN_COL] = re.findall(ISIN_REGEX, corporation[ISIN_COL])[0]
-        driver.get(url)
-        fill_formulary(driver, form_fields, FORM_SEND_BTN_ID)
-        market_prices_list = parse_main_page(
-            driver,
-            results_list=market_prices_list,
-            table_id=MARKET_PRICE_TABLE_ID,
-            next_btn_id=MAIN_TABLE_NEXT_BTN_ID,
-            link_at_cols=tuple(),
-            append_fields=(corporation[ISIN_COL],)
-        )
+    # Create a pool of daemon workers.
+    threads = []
+    for i in range(NUM_OF_THREADS):
+        t = WebParserThread(DRIVER_PATH, in_q, out_q, base_timeout=BASE_TIMEOUT,
+                            retry_times=NUM_OF_TRIALS)
+        t.set_table(MARKET_PRICE_TABLE_ID, MARKET_PRICE_NEXT_BTN_ID)
+        t.set_form(form_fields, FORM_SEND_BTN_ID)
+        t.start()
+        threads.append(t)
 
-    # Output the tables to csv files.
-    write_list_to_file(corporations_list, CORPORATIONS_FILE_PATH, 'w')
-    write_list_to_file(market_prices_list, MARKET_PRICES_FILE_PATH, 'w')
+    # Load urls and ISINs into the queue.
+    for row in main_table:
+        row[ISIN_COL] = re.findall(ISIN_REGEX, row[ISIN_COL])[0]
+        url = f'{MARKET_PRICE_BASE_URL}{row[ISIN_COL]}'
+        in_q.put(Task(url, (row[ISIN_COL],)))
+    # Write main table to file.
 
-    # Quit the driver.
-    driver.quit()
+    write_list_to_file(main_table, CORPORATIONS_FILE_PATH)
+
+    # Add terminal threads terminal signal to the queue.
+    for _ in range(NUM_OF_THREADS):
+        in_q.put(None)
+
+    # Truncate file.
+    with open(MARKET_PRICES_FILE_PATH, 'w') as f:
+        f.truncate()
+
+    # Process results
+    for count in range(len(main_table)):
+        corp_data = is_succesfull(out_q.get(), errors)
+        if corp_data is not None:
+            print(f'Corporation with ISIN = {corp_data[0][0]} correctly downloaded.'
+                  f' Download: {count/len(main_table)*100:.2f}% completed.')
+            write_list_to_file(corp_data, MARKET_PRICES_FILE_PATH, 'a')
+
+    # Report Error.
+    print("\n\nErrors:")
+    for error in errors:
+        print(error)
