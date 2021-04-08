@@ -1,6 +1,7 @@
 """This module is used to extract a java script loaded table from a website."""
 
 import threading
+from time import sleep
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.common.by import By
@@ -59,14 +60,15 @@ class WebParserThread(threading.Thread):
         out.q.get()
     """
 
-    def __init__(self, driver_path, in_q, out_q, timeout=30):
+    def __init__(self, driver_path, in_q, out_q, base_timeout=3, retry_times=1):
         """Initialize object fields."""
         threading.Thread.__init__(self, daemon=True)
         self.driver_path = driver_path
         self.driver = None
         self.in_q = in_q
         self.out_q = out_q
-        self.timeout = timeout
+        self.timeout = base_timeout
+        self.retry_times = retry_times
         self.id_table = ""
         self.id_table_next_btn = ""
         self.link_at_cols = ()
@@ -122,10 +124,9 @@ class WebParserThread(threading.Thread):
                         if col_num in self.link_at_cols:
                             link = cell.find_element_by_tag_name('a')
                             row_lst.append(link.get_attribute('href'))
-                    except NoSuchElementException as e:
+                    except NoSuchElementException:
                         err_msg = (f'An error has occurred parsing the link from row {row_num}'
                                    f' and column {col_num} at table {table.get_attribute("id")}:\n'
-                                   f'  Error message: {e.msg}\n'
                                    f'  Source code: {cell.get_attribute("innerHTML")}\n')
                         raise Exception(err_msg)
                     # Extract text.
@@ -147,18 +148,18 @@ class WebParserThread(threading.Thread):
                 )
                 elem.send_keys(Keys.CONTROL, "a")
                 elem.send_keys(str(val))
-            except TimeoutException as e:
-                err_msg = (f'Program timed out waiting for element with id = {elem_id}:\n'
-                           f'  Error message: {e.msg}\n')
+            except TimeoutException:
+                err_msg = (f'Program timed out waiting for formulary element with id'
+                           f' = {elem_id}:\n')
                 raise Exception(err_msg)
         try:
             send_btn = WebDriverWait(self.driver, self.timeout).until(
                 ec.presence_of_element_located((By.ID, self.id_form_next_btn))
             )
             send_btn.click()
-        except TimeoutException as e:
-            err_msg = (f'Program timed out waiting for formulary button, with id = '
-                       f'{self.id_form_next_btn}:\n  Error message: {e.msg}\n')
+        except TimeoutException:
+            err_msg = (f'Program timed out waiting for formulary submit button, with id = '
+                       f'{self.id_form_next_btn}:\n')
             raise Exception(err_msg)
 
     def __parse_page(self, url):
@@ -171,9 +172,9 @@ class WebParserThread(threading.Thread):
         if self.driver is None:
             self.__start_driver()
         self.driver.get(url)
-        if self.has_form:
-            self.__fill_formulary()
         try:
+            if self.has_form:
+                self.__fill_formulary()
             while True:
                 table = WebDriverWait(self.driver, self.timeout).until(
                     ec.presence_of_element_located((By.ID, self.id_table))
@@ -181,10 +182,13 @@ class WebParserThread(threading.Thread):
                 self.__parse_table_page(table)
                 next_page_btn = self.driver.find_element_by_id(self.id_table_next_btn)
                 next_page_btn.click()
+        except TimeoutException:
+            err_msg = f'Program timed out waiting for the table with id = {self.id_table}.\n'
+            raise Exception(err_msg)
         except NoSuchElementException:
             pass
         except Exception as e:
-            self.out_q.put(e)
+            raise e
 
     def run(self):
         """Process jobs from an input queue.
@@ -200,7 +204,17 @@ class WebParserThread(threading.Thread):
                 self.__close_driver()
                 return
             self.__set_appended_fields_to_table(task.append_fields)
-            self.__parse_page(task.url)
+            for i in range(self.retry_times):
+                try:
+                    self.__parse_page(task.url)
+                    break
+                except Exception as e:
+                    if i == (self.retry_times - 1):
+                        err_msg = (f'{task.url} could not be parsed.'
+                                   f'\n   Error: {str(e)}')
+                        self.results = (Exception(err_msg))
+                    else:
+                        sleep(2 ** i * self.timeout)
             self.out_q.put(self.results)
             self.results = []
             self.in_q.task_done()
