@@ -9,6 +9,7 @@ La estructura de carpetas y ficheros dispone de los siguientes elementos:
 * **README.md**: fichero README con documentación básica.
 * **LICENSE (file)**: fichero que contiene la definición de la licencia de la solución.
 * **"TCVD_Practica1.pdf" (file)**: contiene documentación detallada sobre la solución.
+* **DOI**: DOI proporcionado para el dataset publicado en Zenodo
 # Output
 La solución genera 3 ficheros de salida:
 * Script std out.txt
