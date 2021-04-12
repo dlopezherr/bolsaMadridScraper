@@ -1,6 +1,5 @@
 **bolsaMadridScraper** permite obtener información detallada sobre las empresas que cotizan en la bolsa de Madrid y sus valores de cotización diarios. Este proyecto ha sido realizado en el contexto de la práctica 1 de las asignatura "Tipología y Ciclo de Vida de los Datos" en el Máster de Ciencia de datos de la UOC.
 # Dependencias y requerimientos previos
-* Librerías: 
 * Se debe tener instalado Google Chrome y añadido al path 
 * Driver de Google Chrome en el directorio _../res/chromedriver_
 # Estructura de carpetas y ficheros
