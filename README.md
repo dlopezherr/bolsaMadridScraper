@@ -3,12 +3,12 @@
 * Se debe tener instalado Google Chrome y añadido al path el driver de Google Chrome en el directorio _../res/chromedriver_
 # Estructura de carpetas y ficheros
 La estructura de carpetas y ficheros dispone de los siguientes elementos:
-* **data_scraped (folder)**: contiene los ficheros de salida que genera la solución. En la sección "Salida" se explican en detalle.
+* **data_scraped (folder)**: contiene los ficheros de salida que genera la solución. En la sección "Output" se explican en detalle.
 * **src (folder)**: contiene los ficheros con extensión "py" que contienen el código de la solución. El fichero principal es "main.py"
 * **README.md**: fichero README con documentación básica.
 * **LICENSE (file)**: fichero que contiene la definición de la licencia de la solución.
 * **"TCVD_Practica1.pdf" (file)**: contiene documentación detallada sobre la solución.
-# Salida
+# Output
 La solución genera 3 ficheros de salida:
 * Script std out.txt
 * corporation.csv
