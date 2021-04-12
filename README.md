@@ -5,6 +5,7 @@
 La estructura de carpetas y ficheros dispone de los siguientes elementos:
 * **data_scraped (folder)**: contiene los ficheros de salida que genera la solución. En la sección "Salida" se explican en detalle.
 * **src (folder)**: contiene los ficheros con extensión "py" que contienen el código de la solución. El fichero principal es "main.py"
+* **README.md**: fichero README con documentación básica.
 * **LICENSE (file)**: fichero que contiene la definición de la licencia de la solución.
 * **"TCVD_Practica1.pdf" (file)**: contiene documentación detallada sobre la solución.
 # Salida
